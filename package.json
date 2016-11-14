@@ -1,0 +1,23 @@
+{
+  "name": "OMH-gateway",
+  "version": "1.0.0",
+  "description": "OpemMiniHub gateway",
+  "main": "gateway.js",
+  "repository": "https://github.com/OpenMiniHub/gateway.git",
+  "author": "Martins Ierags",
+  "homepage": "http://openminihub.com/gateway",
+  "dependencies": {
+    "body-parser": "^1.15.2",
+    "express": "^4.14.0",
+    "fs": "0.0.1-security",
+    "https": "^1.0.0",
+    "json5": "^0.5.0",
+    "jsonwebtoken": "^7.1.9",
+    "mqtt": "^2.0.1",
+    "nedb": "^1.8.0",
+    "serialport": "^4.0.3"
+  },
+  "scripts": {
+    "start": "node gateway.js"
+  }
+}
