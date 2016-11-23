@@ -6,7 +6,7 @@
 var JSON5 = require('json5')
 var serialport = require("serialport")
 var mqtt = require('mqtt')
-var client  = mqtt.connect('mqtt://192.168.11.9:1883')
+var client  = mqtt.connect('mqtt://localhost:1883', {username:"pi", password:"raspberry"})
 var Datastore = require('nedb')
 db = new Datastore({filename : 'openminihub.db', autoload: true})
 userdb = new Datastore({filename : 'users.db', autoload: true})
@@ -226,17 +226,14 @@ client.on('message', (topic, message) => {
 
 function handleOutTopic(message) {
   var node = message.toString().split(';')
-  nodeIdx = node[0]
-  db.find({ _id : nodeIdx, "contact.id": node[1], "contact.message.type": node[4] }, function (err, entries) {
-      var dbNode = entries[0]
+  db.find({ _id : node[0], "contact.id": node[1], "contact.message.type": node[4] }, function (err, entries) {
       var node = message.toString().split(';')
-      nodeIdx = node[0]
       if (entries.length == 1)
       {
         var dbNode = entries[0]
-	if (node[2] == '1') // Update node value
+	if (node[2] == '1') // Update node value (C_SET)
 	{
-	  db.update({ _id: nodeIdx, "contact.id": node[1], "contact.message.type": node[4]}, { $set: { "contact.message.value": node[5], "contact.message.updated": new Date().getTime() } })
+	  db.update({ _id: node[0], "contact.id": node[1], "contact.message.type": node[4]}, { $set: { "contact.message.value": node[5], "contact.message.updated": new Date().getTime() } })
 
           if (dbNode.contact[0].message[0].mqtt != undefined)
           {
@@ -245,62 +242,111 @@ function handleOutTopic(message) {
           }
 
 	}
-	else if (node[2] == '0')  // Got present mesage, update node type
+	else if (node[2] == '0')  // Got present mesage, update node type (C_PRESENTATION)
 	{
-	  db.update({ _id: nodeIdx, "contact.id": node[1]}, { $set: { "contact.type": node[4] } })
+	  db.update({ _id: node[0], "contact.id": node[1]}, { $set: { "contact.type": node[4] } })
 	}
-        else if (node[2] == '3') //Got internal message
-        {
-          if (node[4] == '11')  //Name
-	  {
-	    db.update({ _id: nodeIdx}, { $set: { name: node[5] } })
-	  }
-          if (node[4] == '12')  //Version
-	  {
-	    db.update({ _id: nodeIdx}, { $set: { version: node[5] } })
-	  }
-        }
       }
       else
       {
-        console.log('node:%s c:%s NOT in database', node[0], node[1])
+//        console.log('node:%s c:%s t:%s - NOT in database', node[0], node[1], node[4])
+	//Is node registered at all?
+	db.find({ _id : node[0] }, function (err, entries) {
+	  var node = message.toString().split(';')
+//          nodeIdx = node[0]
+	  if (entries.length < 1) //new node
+	  {
+	    console.log('Adding new record')
+            dbNode = new Object()
+            dbNode._id = node[0]
+            dbNode.name = ""
+            dbNode.version = ""
+	    dbNode.contact = new Array()
 
-	dbNode = new Object()
-        dbNode._id = nodeIdx
-        dbNode.name = ""
-        dbNode.version = ""
-	dbNode.contact = new Array()
-
-	if (node[2] == '1') // Update node value
-	{
-          dbNode.contact[node[1]] = new Object()
-	  dbNode.contact[node[1]].id = node[1]
-	  dbNode.contact[node[1]].type = ""
-          dbNode.contact[node[1]].message = new Array()
-          dbNode.contact[node[1]].message[node[4]] = new Object()
-	  dbNode.contact[node[1]].message[node[4]].type = node[4]
-          dbNode.contact[node[1]].message[node[4]].value = node[5]
-          dbNode.contact[node[1]].message[node[4]].updated = new Date().getTime()
-	}
-	else if (node[2] == '0')  // Got present message
-	{
-          dbNode.contact[node[1]] = new Object()
-          dbNode.contact[node[1]].type=node[4]
-	}
-	else if (node[2] == '3') //Got internal message
-	{
-	  if (node[4] == '11')  //Name
-	    dbNode.name = node[5]
-	  if (node[4] == '12')  //Version
-	    dbNode.version = node[5]
-	}
-	//Insert to database
-	db.insert(dbNode, function (err, newEntry) {
-          if (err != null)
-            console.log('ERROR:%s', err)
-          })
-      }
-    })
+	    if (node[2] == '1') // Update node value
+	    {
+              dbNode.contact[node[1]] = new Object()
+	      dbNode.contact[node[1]].id = node[1]
+	      dbNode.contact[node[1]].type = ""
+              dbNode.contact[node[1]].message = new Array()
+              dbNode.contact[node[1]].message[node[4]] = new Object()
+	      dbNode.contact[node[1]].message[node[4]].type = node[4]
+              dbNode.contact[node[1]].message[node[4]].value = node[5]
+              dbNode.contact[node[1]].message[node[4]].updated = new Date().getTime()
+	    }
+	    else if (node[2] == '0')  // Got present message
+	    {
+              dbNode.contact[node[1]] = new Object()
+              dbNode.contact[node[1]].type=node[4]
+	    }
+ 	    else if (node[2] == '3') //Got internal message
+	    {
+	      if (node[4] == '11')  //Name
+	    	dbNode.name = node[5]
+	      if (node[4] == '12')  //Version
+	    	dbNode.version = node[5]
+	    }
+	    //Insert to database
+	    db.insert(dbNode, function (err, newEntry) {
+              if (err != null)
+                console.log('ERROR:%s', err)
+            })
+          }
+	  else
+	  {
+//	    console.log('something exists')
+	    if (node[1] = '255' && node[2] == '3')
+            {
+              if (node[4] == '11')  //Name
+              {
+                db.update({ _id: node[0]}, { $set: { name: node[5] } })
+              }
+              if (node[4] == '12')  //Version
+              {
+                db.update({ _id: node[0]}, { $set: { version: node[5] } })
+              }
+            }
+	    else
+	      db.find({ _id : node[0], "contact.id": node[1] }, function (err, entries) {
+	        var node = message.toString().split(';')
+	        if (entries.length == 1)
+	        {
+		  if (node[2] == '1') // Update node value
+		  {
+		    dbMessage = new Object()
+                    dbMessage.type = node[4]
+                    dbMessage.value = node[5]
+                    dbMessage.updated = new Date().getTime()
+                    db.update({ _id: node[0], "contact.id": node[1] }, { $addToSet: { "contact.message" : dbMessage } })
+//		    db.update({ _id: node[0], "contact.id": node[1] }, { $set: { "contact.message.type": node[4], "contact.message.value": node[5], "contact.message.updated": new Date().getTime() } })
+		  }
+		  if (node[2] == '0')
+		    db.update({ _id: node[0], "contact.id": node[1] }, { $set: { "contact.type": node[4] } })
+	        }
+	        else
+	        {
+                  if (node[2] == '1') // Update node value
+		  {
+         	    dbMessage = new Object()
+                    dbMessage.type = node[4]
+                    dbMessage.value = node[5]
+                    dbMessage.updated = new Date().getTime()
+                    db.update({ _id: node[0], "contact.id": node[1] }, { $addToSet: { "contact.message" : dbMessage } })
+	   	  }
+                  if (node[2] == '0')
+		  {
+		    dbContact = new Object()
+                    dbContact.id = node[1]
+                    dbContact.type = node[4]
+                    dbContact.message = new Array()
+		    db.update({ _id: node[0] }, { $addToSet: { contact: dbContact } })
+		  }
+	        }
+	    })
+	  }
+       })
+     }
+  })
 }
 
 function handleSendMessage(topic, message) {
