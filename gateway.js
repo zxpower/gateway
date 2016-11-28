@@ -62,7 +62,7 @@ apiRoutes.post('/auth', function(req, res) {
       } else {
         // if user is found and password is right
         // create a token
-        var token = jwt.sign(user._id, securityOptions.key, { expiresIn: '2 days' })
+        var token = jwt.sign(user._id, securityOptions.key) //, { expiresIn: '5m' })
 
         // return the information including token as JSON
         res.json({
@@ -103,7 +103,7 @@ apiRoutes.use(function(req, res, next) {
   }
 })
 
-// route to return all users (GET http://localhost:8080/api/users)
+// route to return all nodes (GET http://localhost:8080/api/nodes)
 apiRoutes.get('/nodes', function(req, res) {
   db.find({ _id : { $exists: true } }, function (err, entries) {
     res.json(entries)
@@ -123,6 +123,103 @@ apiRoutes.get('/node/:id', function(req, res) {
 //  res.send('no node found')
 })
 
+apiRoutes.get('/node/:id/:contact', function(req, res) {
+  db.find({ _id : req.params.id, "contact.id" : req.params.contact }, function (err, entries) {
+    if (entries.length == 1)
+    {
+      dbNode = entries[0]
+      for (var c=0; c<dbNode.contact.length; c++) 
+      {
+        if (dbNode.contact[c].id == req.params.contact)
+        {
+          res.json(dbNode.contact[c])
+        }
+      }
+    }
+    else
+    {
+      res.send('no node found')
+    }
+  })
+})
+
+apiRoutes.get('/node/:id/:contact/:message', function(req, res) {
+  db.find({ _id : req.params.id, "contact.id" : req.params.contact }, function (err, entries) {
+    var foundMessage = false
+    if (entries.length == 1)
+    {
+      dbNode = entries[0]
+      for (var c=0; c<dbNode.contact.length; c++)
+      {
+        if (dbNode.contact[c].id == req.params.contact)
+        {
+          for (var m=0; m<dbNode.contact[c].message.length; m++)
+          {
+            if (dbNode.contact[c].message[m].type == req.params.message)
+            {
+              foundMessage = true
+              res.json(dbNode.contact[c].message[m])
+              break
+            }
+          }
+          if (foundMessage)
+            break
+        }
+      }
+    }
+    if (!foundMessage)
+    {
+      res.send('no node found')
+    }
+  })
+})
+
+apiRoutes.put('/node/:id/:contact/:message', function(req, res) {
+  console.log('mqtt=%s', req.body.mqtt)
+  if (!req.body.mqtt)
+  {
+    res.json({ success: false, message: 'No MQTT specified.' })
+  }
+  else
+  db.find({ _id : req.params.id, "contact.id" : req.params.contact }, function (err, entries) {
+    if (err) throw err
+    var foundMessage = false
+    if (entries.length == 1)
+    {
+      dbNode = entries[0]
+      for (var c=0; c<dbNode.contact.length; c++)
+      {
+        if (dbNode.contact[c].id == req.params.contact)
+        {
+          for (var m=0; m<dbNode.contact[c].message.length; m++)
+          {
+            if (dbNode.contact[c].message[m].type == req.params.message)
+            {
+              foundMessage = true
+              var updateCon = {$set:{}}   
+              updateCon.$set["contact."+c+".message."+m+".mqtt"] = req.body.mqtt
+              db.update({ _id: req.params.id, "contact.id": req.params.contact }, updateCon )
+
+              res.json({
+                success: true,
+                message: 'Enjoy your MQTT',
+                mqtt: req.body.mqtt
+              })
+              break
+            }
+          }
+          if (foundMessage)
+            break
+        }
+      }
+    }
+    if (!foundMessage)
+    {
+      res.send('no node found')
+    }
+  })
+})
+/*
 apiRoutes.put('/node/:id', function(req, res) {
   db.findOne({ _id: req.params.id }, function(err, entries) {
     if (err) throw err
@@ -134,18 +231,18 @@ apiRoutes.put('/node/:id', function(req, res) {
         res.json({ success: false, message: 'No MQTT specified.' })
       } else {
         // if node found and mqtt specified 
-	db.update({ _id: req.params.id}, { $set: {mqtt: req.body.mqtt} })
+	      db.update({ _id: req.params.id}, { $set: {mqtt: req.body.mqtt} })
         // return the information including token as JSON
         res.json({
           success: true,
           message: 'Enjoy your MQTT',
-	  mqtt: req.body.mqtt
+	        mqtt: req.body.mqtt
         })
       }
     }
   })
 })
-
+*/
 apiRoutes.get('/create', function(req, res) {
   userRow._id='user'
   userRow.password='password'
@@ -364,10 +461,10 @@ function handleSendMessage(topic, message) {
         var dbNode = entries[0]
         var nodeId = dbNode._id
         var contactId = dbNode.contact[0].id
-	var messageType = dbNode.contact[0].message[0].type
+	      var messageType = dbNode.contact[0].message[0].type
         console.log('node: %s contact: %s', nodeId, contactId)
-	console.log('%s;%s;1;1;%s;%s', nodeId, contactId, messageType, message)
-	serial.write(nodeId + ';' + contactId + ';1;1;' + messageType + ';' + message + '\n', function () { serial.drain(); });
+	      console.log('%s;%s;1;1;%s;%s', nodeId, contactId, messageType, message)
+	      serial.write(nodeId + ';' + contactId + ';1;1;' + messageType + ';' + message + '\n', function () { serial.drain(); });
       }
     }
   })
