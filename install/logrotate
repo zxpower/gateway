@@ -1,0 +1,11 @@
+/home/pi/gateway/logs/*.log {
+        size 20M
+        missingok
+        rotate 20
+        dateext
+        dateformat -%Y-%m-%d
+        compress
+        notifempty
+        nocreate
+        copytruncate
+}
