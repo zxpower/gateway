@@ -7,6 +7,7 @@ var JSON5 = require('json5')
 var serialport = require("serialport")
 var mqtt = require('mqtt')
 var client  = mqtt.connect('mqtt://localhost:1883', {username:"pi", password:"raspberry"})
+//var client  = mqtt.connect('mqtt://192.168.11.9:1883')
 var Datastore = require('nedb')
 db = new Datastore({filename : 'openminihub.db', autoload: true})
 userdb = new Datastore({filename : 'users.db', autoload: true})
@@ -272,6 +273,8 @@ serial.on('data', function(data) { processSerialData(data) })
 
 serial.open()
 
+db.persistence.setAutocompactionInterval(86400000) //compact the database every 24hrs
+
 global.processSerialData = function (data) {
   console.log('Got: %s', data)
   handleOutTopic(data)
@@ -354,10 +357,20 @@ function handleOutTopic(message) {
 
                     if (dbNode.contact[c].message[i].mqtt)
                     {
+                      var nodeQOS = 0
+                      var nodeRetain = false
+                      if (dbNode.contact[c].message[i].qos)
+                      {
+                        nodeQOS = dbNode.contact[c].message[i].qos
+                      }
+                      if (dbNode.contact[c].message[i].retain)
+                      {
+                        nodeRetain = dbNode.contact[c].message[i].retain
+                      }
                       if (msg[5])
-                        client.publish(dbNode.contact[c].message[i].mqtt, msg[5])
+                        client.publish(dbNode.contact[c].message[i].mqtt, msg[5], {qos: nodeQOS, retain: nodeRetain})
                       else
-                        client.publish(dbNode.contact[c].message[i].mqtt, msg[4])
+                        client.publish(dbNode.contact[c].message[i].mqtt, msg[4], {qos: nodeQOS, retain: nodeRetain})
                         //need to improve feature publish events when no payload provided (only 4 variables received)
                     }
                     break
@@ -369,7 +382,9 @@ function handleOutTopic(message) {
                   newMessage.type = msg[4]
                   newMessage.value = msg[5]
                   newMessage.updated = new Date().getTime()
-                  newMessage.mqtt = ""  
+                  newMessage.mqtt = ""
+                  newMessage.qos = ""
+                  newMessage.retain = ""
                   var updateCon = {$push:{}}   
                   updateCon.$push["contact."+c+".message"] = newMessage
                   db.update({ _id: msg[0], "contact.id": msg[1] }, updateCon )
@@ -427,6 +442,8 @@ function handleOutTopic(message) {
           dbNode.contact[0].message[0].value = msg[5]
           dbNode.contact[0].message[0].updated = new Date().getTime()
           dbNode.contact[0].message[0].mqtt = ""
+          dbNode.contact[0].message[0].qos = ""
+          dbNode.contact[0].message[0].retain = ""
 	      }
   	    else if (msg[2] == '0')  // Got present message
 	      {
@@ -451,20 +468,27 @@ function handleOutTopic(message) {
 }
 
 function handleSendMessage(topic, message) {
-  var topicByIndex = topic.toString().split('/set')
-  console.log('mqtt: %s %s', topicByIndex[0], message)
-  db.find({ "contact.message.mqtt" : topicByIndex[0] }, function (err, entries) {
+  var findTopic = topic.toString().split('/set')
+  console.log('mqtt: %s %s', findTopic[0], message)
+  db.find({ "contact.message.mqtt" : findTopic[0] }, function (err, entries) {
     if (!err) 
     {
-      if (entries.length == 1)
+      if (entries.length > 0)
       {
+        var mqttTopic = topic.toString().split('/set')
         var dbNode = entries[0]
-        var nodeId = dbNode._id
-        var contactId = dbNode.contact[0].id
-	      var messageType = dbNode.contact[0].message[0].type
-        console.log('node: %s contact: %s', nodeId, contactId)
-	      console.log('%s;%s;1;1;%s;%s', nodeId, contactId, messageType, message)
-	      serial.write(nodeId + ';' + contactId + ';1;1;' + messageType + ';' + message + '\n', function () { serial.drain(); });
+        for (var c=0; c<dbNode.contact.length; c++)
+        {
+          for (var m=0; m<dbNode.contact[c].message.length; m++)
+          {
+            if (dbNode.contact[c].message[m].mqtt == mqttTopic[0])
+            {
+              console.log('node: %s contact: %s message: %s', dbNode._id, dbNode.contact[c].id, dbNode.contact[c].message[m].type)
+	      console.log('%s;%s;1;1;%s;%s', dbNode._id, dbNode.contact[c].id, dbNode.contact[c].message[m].type, message)
+	      serial.write(dbNode._id + ';' + dbNode.contact[c].id + ';1;1;' + dbNode.contact[c].message[m].type + ';' + message + '\n', function () { serial.drain(); });
+            }
+          }
+        }
       }
     }
   })
