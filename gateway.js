@@ -328,7 +328,8 @@ function handleOutTopic(message) {
   var fndMsg = message.toString().split(';')
   //search in db for node
   db.find({ _id : fndMsg[0] }, function (err, entries) {
-      var msg = message.toString().split(';')
+      var trim_msg = message.replace(/(\n|\r)+$/, '')
+      var msg = trim_msg.toString().split(';')
       if (entries.length == 1)
       {
         dbNode = entries[0]
