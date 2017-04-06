@@ -257,7 +257,7 @@ apiRoutes.get('/create', function(req, res) {
 // apply the routes to our application with the prefix /api
 app.use('/api', apiRoutes)
 
-serial = new serialport('/dev/ttyAMA0', { baudrate : 115200, parser: serialport.parsers.readline("\n"), autoOpen:false})
+serial = new serialport('/dev/serial0', { baudrate : 115200, parser: serialport.parsers.readline("\n"), autoOpen:false})
 
 serial.on('error', function serialErrorHandler(error) {
     //Send serial error messages to console.
@@ -476,7 +476,7 @@ function handleOutTopic(message) {
 }
 
 function handleSendMessage(topic, message) {
-  console.log('mqtt: %s %s', findTopic[0], message)
+  console.log('mqtt: %s %s', topic, message)
   var findTopic = topic.toString().split('/set')
   var splitTopic = findTopic[0].toString().split('/')
   if (splitTopic[0] == 'system' && splitTopic.length > 4 && message.length > 0)
