@@ -400,6 +400,7 @@ function handleOutTopic(message) {
                 var updateCon = {$set:{}}   
                 updateCon.$set["contact."+c+".type."] = msg[4]
                 db.update({ _id: msg[0], "contact.id": msg[1] }, updateCon )
+                client.publish('system/node/'+msg[0]+'/'+msg[1]+'/type', msg[4], {qos: 0, retain: true})
                 break
               }
             }
@@ -420,10 +421,12 @@ function handleOutTopic(message) {
           if (msg[4] == '11')  //Name
           {
             db.update({ _id: msg[0]}, { $set: { name: msg[5] } })
-          }
+            client.publish('system/node/'+msg[0]+'/name', msg[5], {qos: 0, retain: true})
+	  }
           if (msg[4] == '12')  //Version
           {
             db.update({ _id: msg[0]}, { $set: { version: msg[5] } })
+            client.publish('system/node/'+msg[0]+'/version', msg[5], {qos: 0, retain: true})
           }
         }
       }
@@ -473,30 +476,67 @@ function handleOutTopic(message) {
 }
 
 function handleSendMessage(topic, message) {
-  var findTopic = topic.toString().split('/set')
   console.log('mqtt: %s %s', findTopic[0], message)
-  db.find({ "contact.message.mqtt" : findTopic[0] }, function (err, entries) {
-    if (!err) 
-    {
-      if (entries.length > 0)
+  var findTopic = topic.toString().split('/set')
+  var splitTopic = findTopic[0].toString().split('/')
+  if (splitTopic[0] == 'system' && splitTopic.length > 4 && message.length > 0)
+  {
+    db.find({ _id : splitTopic[2] }, function (err, entries) {
+      if (entries.length == 1)
       {
-        var mqttTopic = topic.toString().split('/set')
-        var dbNode = entries[0]
+        dbNode = entries[0]
         for (var c=0; c<dbNode.contact.length; c++)
         {
-          for (var m=0; m<dbNode.contact[c].message.length; m++)
+          if (dbNode.contact[c].id == splitTopic[3])
           {
-            if (dbNode.contact[c].message[m].mqtt == mqttTopic[0])
+            for (var m=0; m<dbNode.contact[c].message.length; m++)
             {
-              console.log('node: %s contact: %s message: %s', dbNode._id, dbNode.contact[c].id, dbNode.contact[c].message[m].type)
-	      console.log('%s;%s;1;1;%s;%s', dbNode._id, dbNode.contact[c].id, dbNode.contact[c].message[m].type, message)
-	      serial.write(dbNode._id + ';' + dbNode.contact[c].id + ';1;1;' + dbNode.contact[c].message[m].type + ';' + message + '\n', function () { serial.drain(); });
+              if (dbNode.contact[c].message[m].type == splitTopic[4])
+              {
+                if (dbNode.contact[c].message[m].mqtt != message)
+                {
+                  var oldTopic = dbNode.contact[c].message[m].mqtt
+                  var updateCon = {$set:{}}
+                  updateCon.$set["contact."+c+".message."+m+".mqtt"] = message.toString()
+                  db.update({ _id: splitTopic[2], "contact.id": splitTopic[3] }, updateCon )
+                  //change subscription
+                  client.subscribe(message+'/set')
+                  client.unsubscribe(oldTopic+'/set')
+                  //exit loop
+                  m = dbNode.contact[c].message.length;
+                  c = dbNode.contact.length;
+                }
+              }
             }
           }
         }
       }
-    }
-  })
+    })
+  }
+  else
+  {
+    db.find({ "contact.message.mqtt" : findTopic[0] }, function (err, entries) {
+      if (!err)
+      {
+        if (entries.length > 0)
+        {
+          var mqttTopic = topic.toString().split('/set')
+          var dbNode = entries[0]
+          for (var c=0; c<dbNode.contact.length; c++)
+          {
+            for (var m=0; m<dbNode.contact[c].message.length; m++)
+            {
+              if (dbNode.contact[c].message[m].mqtt == mqttTopic[0])
+              {
+                console.log('node: %s contact: %s message: %s', dbNode._id, dbNode.contact[c].id, dbNode.contact[c].message[m].type)
+                console.log('%s;%s;1;1;%s;%s', dbNode._id, dbNode.contact[c].id, dbNode.contact[c].message[m].type, message)
+                serial.write(dbNode._id + ';' + dbNode.contact[c].id + ';1;1;' + dbNode.contact[c].message[m].type + ';' + message + '\n', function () { serial.drain(); });
+              }
+            }
+          }
+        }
+      }
+    })
+  }
 }
-
 //on startup do something
