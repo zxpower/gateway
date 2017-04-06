@@ -299,6 +299,10 @@ client.on('connect', () => {
                   {
                     client.subscribe(message[m].mqtt+'/set')
                     console.log('%s', message[m].mqtt);
+                    //system configuration topics
+                    var configNodeTopic = 'system/node/'+entries[n]._id+'/'+contact[c].id+'/'+message[m].type
+                    client.publish(configNodeTopic, message[m].mqtt, {qos: 0, retain: true})
+                    client.subscribe(configNodeTopic+'/set')
                   }
               }
           }
