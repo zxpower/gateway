@@ -6,7 +6,8 @@
 var JSON5 = require('json5')
 var serialport = require("serialport")
 var mqtt = require('mqtt')
-var client  = mqtt.connect('mqtt://localhost:1883', {username:"pi", password:"raspberry"})
+var client  = mqtt.connect('mqtt://m20.cloudmqtt.com:14475', {username:"pi", password:"raspberry"})
+//var client  = mqtt.connect('mqtt://localhost:1883', {username:"pi", password:"raspberry"})
 //var client  = mqtt.connect('mqtt://192.168.11.9:1883')
 var Datastore = require('nedb')
 db = new Datastore({filename : 'openminihub.db', autoload: true})
@@ -372,11 +373,8 @@ function handleOutTopic(message) {
                       {
                         nodeRetain = dbNode.contact[c].message[i].retain
                       }
-                      if (msg[5])
-                        client.publish(dbNode.contact[c].message[i].mqtt, msg[5], {qos: nodeQOS, retain: nodeRetain})
-                      else
-                        client.publish(dbNode.contact[c].message[i].mqtt, msg[4], {qos: nodeQOS, retain: nodeRetain})
-                        //need to improve feature publish events when no payload provided (only 4 variables received)
+                      client.publish(dbNode.contact[c].message[i].mqtt, msg[msg.length-1], {qos: nodeQOS, retain: nodeRetain})
+                      //need to improve feature publish events when no payload provided (only 4 variables received)
                     }
                     break
                   }
@@ -394,6 +392,10 @@ function handleOutTopic(message) {
                   updateCon.$push["contact."+c+".message"] = newMessage
                   db.update({ _id: msg[0], "contact.id": msg[1] }, updateCon )
                 }
+                //publish message type
+                client.publish('system/node/'+msg[0]+'/'+msg[1]+'/msgtype', msg[4], {qos: 0, retain: true})
+                //publish message value
+                client.publish('system/node/'+msg[0]+'/'+msg[1]+'/'+msg[4]+'/value', msg[msg.length-1], {qos: 0, retain: true})  //fix for only 4 variables received
               }
               if (msg[2]  == '0') // C_PRESENTATION
               {
@@ -478,13 +480,14 @@ function handleOutTopic(message) {
 function handleSendMessage(topic, message) {
   console.log('mqtt: %s %s', topic, message)
   var findTopic = topic.toString().split('/set')
-  var splitTopic = findTopic[0].toString().split('/')
+  var splitTopic = topic.toString().split('/')
   if (splitTopic[0] == 'system' && splitTopic.length > 4 && message.length > 0)
   {
     db.find({ _id : splitTopic[2] }, function (err, entries) {
       if (entries.length == 1)
       {
         dbNode = entries[0]
+        var contactFound = false
         for (var c=0; c<dbNode.contact.length; c++)
         {
           if (dbNode.contact[c].id == splitTopic[3])
@@ -503,12 +506,14 @@ function handleSendMessage(topic, message) {
                   client.subscribe(message+'/set')
                   client.unsubscribe(oldTopic+'/set')
                   //exit loop
-                  m = dbNode.contact[c].message.length;
-                  c = dbNode.contact.length;
+                  contactFound = true
+                  break
                 }
               }
             }
           }
+          if (contactFound)
+            break
         }
       }
     })
