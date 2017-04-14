@@ -4,7 +4,9 @@
 // Copyright Martins Ierags, OpenMiniHub (2016)
 // **********************************************************************************
 var JSON5 = require('json5')
-var serialport = require("serialport")
+var serialport = require('serialport')
+var fs = require("fs");
+const execFile = require('child_process').execFile;
 var mqtt = require('mqtt')
 var client  = mqtt.connect('mqtt://localhost:1883', {username:"pi", password:"raspberry"})
 var Datastore = require('nedb')
@@ -313,6 +315,7 @@ client.on('connect', () => {
       console.log('ERROR:%s', err)
     }
   })
+  client.subscribe('system/update')
 })
 
 client.on('message', (topic, message) => {  
@@ -479,7 +482,9 @@ function handleSendMessage(topic, message) {
   console.log('mqtt: %s %s', topic, message)
   var findTopic = topic.toString().split('/set')
   var splitTopic = topic.toString().split('/')
-  if (splitTopic[0] == 'system' && splitTopic.length > 4 && message.length > 0)
+  if (splitTopic[0] == 'system')
+  {
+  if (splitTopic[1] == 'node' && splitTopic.length > 4 && message.length > 0)
   {
     db.find({ _id : splitTopic[2] }, function (err, entries) {
       if (entries.length == 1)
@@ -515,6 +520,30 @@ function handleSendMessage(topic, message) {
         }
       }
     })
+  }
+  if (splitTopic[1] == 'update' && message=='now')
+  {
+    fs.open('./.updatenow', "wx", function (err, fd) {
+    // handle error
+    fs.close(fd, function (err) {
+        // handle error
+        if (err)
+        {
+          client.publish('system/update', 'inprogress', {qos: 0, retain: false})
+        }
+        else
+        {
+        client.publish('system/update', 'updating', {qos: 0, retain: false})
+        const child = execFile('./gateway-update.sh', [''], (error, stdout, stderr) => {
+          if (error) {
+            client.publish('system/update', 'error', {qos: 0, retain: false})
+          }
+          console.log(stdout);
+        });
+        }
+    });
+    });
+  }
   }
   else
   {
