@@ -1,0 +1,5 @@
+data
+firmware
+node_modules
+logs/*.log
+ssl/*
