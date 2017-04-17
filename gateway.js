@@ -462,16 +462,16 @@ function handleOutTopic(message) {
                   db.update({ _id: msg[0], "contact.id": msg[1] }, updateCon )
                 }
                 //publish message type
-                client.publish('system/node/'+msg[0]+'/'+msg[1]+'/msgtype', msg[4], {qos: 0, retain: true})
+                client.publish('system/node/'+msg[0]+'/'+msg[1]+'/msgtype', msg[4], {qos: 0, retain: false})
                 //publish message value
-                client.publish('system/node/'+msg[0]+'/'+msg[1]+'/'+msg[4]+'/value', msg[msg.length-1], {qos: 0, retain: true})  //fix for only 4 variables received
+                client.publish('system/node/'+msg[0]+'/'+msg[1]+'/'+msg[4]+'/value', msg[msg.length-1], {qos: 0, retain: false})  //fix for only 4 variables received
               }
               if (msg[2]  == '0') // C_PRESENTATION
               {
                 var updateCon = {$set:{}}   
                 updateCon.$set["contact."+c+".type."] = msg[4]
                 db.update({ _id: msg[0], "contact.id": msg[1] }, updateCon )
-                client.publish('system/node/'+msg[0]+'/'+msg[1]+'/type', msg[4], {qos: 0, retain: true})
+                client.publish('system/node/'+msg[0]+'/'+msg[1]+'/type', msg[4], {qos: 0, retain: false})
                 break
               }
             }
@@ -492,12 +492,12 @@ function handleOutTopic(message) {
           if (msg[4] == '11')  //Name
           {
             db.update({ _id: msg[0]}, { $set: { name: msg[5] } })
-            client.publish('system/node/'+msg[0]+'/name', msg[5], {qos: 0, retain: true})
+            client.publish('system/node/'+msg[0]+'/name', msg[5], {qos: 0, retain: false})
 	  }
           if (msg[4] == '12')  //Version
           {
             db.update({ _id: msg[0]}, { $set: { version: msg[5] } })
-            client.publish('system/node/'+msg[0]+'/version', msg[5], {qos: 0, retain: true})
+            client.publish('system/node/'+msg[0]+'/version', msg[5], {qos: 0, retain: false})
           }
         }
       }
