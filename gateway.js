@@ -1,17 +1,23 @@
 // **********************************************************************************
 // Gateway for OpenMiniHub IoT Framework
 // **********************************************************************************
-// Copyright Martins Ierags, OpenMiniHub (2016)
+// Copyright Martins Ierags, OpenMiniHub (2017)
 // **********************************************************************************
-var JSON5 = require('json5')
+var nconf = require('nconf')                                   //https://github.com/indexzero/nconf
+var JSON5 = require('json5')                                   //https://github.com/aseemk/json5
+var path = require('path')
 var serialport = require('serialport')
-var fs = require("fs");
-const execFile = require('child_process').execFile;
+var dbDir = 'data'
+var fs = require("fs")
+const execFile = require('child_process').execFile
+var readFile = require('n-readlines')
+nconf.argv().file({ file: path.resolve(__dirname, 'settings.json5'), format: JSON5 })
+settings = nconf.get('settings');
 var mqtt = require('mqtt')
-var client  = mqtt.connect('mqtt://localhost:1883', {username:"pi", password:"raspberry"})
+var client  = mqtt.connect('mqtt://'+settings.mqtt.server.value+':'+settings.mqtt.port.value, {username:settings.mqtt.username.value, password:settings.mqtt.password.value})
 var Datastore = require('nedb')
-db = new Datastore({filename : 'openminihub.db', autoload: true})
-userdb = new Datastore({filename : 'users.db', autoload: true})
+db = new Datastore({filename : path.join(__dirname, dbDir, settings.database.name.value), autoload: true})
+userdb = new Datastore({filename : './data/users.db', autoload: true})
 
 var express     = require('express')
 var app         = express()
@@ -21,6 +27,7 @@ var http	= require('http')
 var https	= require('https')
 var jwt    	= require('jsonwebtoken') // used to create, sign, and verify tokens
 
+global.nodeTo = 0
 
 var port = 8080
 var securityOptions = {
@@ -258,7 +265,7 @@ apiRoutes.get('/create', function(req, res) {
 // apply the routes to our application with the prefix /api
 app.use('/api', apiRoutes)
 
-serial = new serialport('/dev/serial0', { baudrate : 115200, parser: serialport.parsers.readline("\n"), autoOpen:false})
+serial = new serialport(settings.serial.port.value, { baudrate : settings.serial.baud.value, parser: serialport.parsers.readline("\n"), autoOpen:false})
 
 serial.on('error', function serialErrorHandler(error) {
     //Send serial error messages to console.
@@ -274,10 +281,10 @@ serial.on('data', function(data) { processSerialData(data) })
 
 serial.open()
 
-db.persistence.setAutocompactionInterval(86400000) //compact the database every 24hrs
+db.persistence.setAutocompactionInterval(settings.database.compactDBInterval.value) //compact the database every 24hrs
 
 global.processSerialData = function (data) {
-  console.log('Got: %s', data)
+//  console.log('SERIAL: %s', data)
   handleOutTopic(data)
 }
 
@@ -290,17 +297,18 @@ client.on('connect', () => {
       console.log('==============================');
       console.log('* Subscribing to MQTT topics *');
       console.log('==============================');
-//      console.log('mqtt found %j', entries[0]);
       for (var n in entries) {
+        //node status topics
+        client.subscribe('system/node/'+entries[n]._id+'/status')
         contact = entries[n].contact
           for (var c in contact) {
             message = contact[c].message
               for (var m in message) {
-                  if (message[m].mqtt) // != null) //enabled events only
+                  if (message[m].mqtt) //enabled events only
                   {
                     client.subscribe(message[m].mqtt+'/set')
                     console.log('%s', message[m].mqtt);
-                    //system configuration topics
+                    //node contact message configuration topics
                     var configNodeTopic = 'system/node/'+entries[n]._id+'/'+contact[c].id+'/'+message[m].type
                     client.publish(configNodeTopic, message[m].mqtt, {qos: 0, retain: true})
                     client.subscribe(configNodeTopic+'/set')
@@ -309,13 +317,15 @@ client.on('connect', () => {
           }
       }
       console.log('==============================');
+//      nodeOTA(5)
     }
     else
     {
       console.log('ERROR:%s', err)
     }
   })
-  client.subscribe('system/update')
+  //system configuration topics
+  client.subscribe('system/gateway')
 })
 
 client.on('message', (topic, message) => {  
@@ -325,12 +335,70 @@ client.on('message', (topic, message) => {
 //      return handleOutTopic(message)
 //    case 'home':
 //      return handleSendMessage(topic, message)
-  handleSendMessage(topic, message)
+  if (message.toString().trim().length > 0) 
+    handleSendMessage(topic, message)
 //  }
 //  console.log('No handler for topic %s', topic)
 })
 
 function handleOutTopic(message) {
+  if (message.toString().trim() == 'FLX?OK')
+  {
+    if (global.nodeTo)
+    {
+      readNextFileLine(global.hexFile, 0)
+      console.log('Transfering firmware...')
+    }
+    return true
+  }
+  if (message.toString().trim() == 'TO:5:OK')
+  {
+    if (global.nodeTo == 0)
+    {
+      var toMsg = message.toString().split(':')
+      db.find({ _id : toMsg[1] }, function (err, entries) {
+        if (entries.length == 1)
+        {
+          dbNode = entries[0]
+
+//          global.hexFile = new readFile('./firmware/GarageNode/GarageNode_v1.1.hex')
+          global.nodeTo = dbNode._id
+          nconf.use('file', { file: './firmware/versions.json5' })
+          var nodeFirmware = nconf.get('versions:'+dbNode.name+':firmware')
+//          console.log('FW > %s', nodeFirmware)
+          global.hexFile = new readFile('./firmware/'+nodeFirmware)
+          serial.write('FLX?' + '\n', function () { serial.drain(); })
+          console.log('Requesting Node: %s update with FW: %s', global.nodeTo, nodeFirmware)
+        }
+      })
+      return true
+    }
+    else
+      return false
+  }
+  if (message.toString().trim() == 'FLX?NOK')
+  {
+    console.log('Flashing failed!')
+    global.nodeTo = 0
+    return false
+  }
+  if (message.substring(0, (4 > message.length - 1) ? message.length - 1 : 4) == 'FLX:')
+  {
+    var flxMsg = message.toString().split(':')
+    if (flxMsg[1].trim() == 'INV')
+    {
+      console.log('Flashing failed!')
+      global.nodeTo = 0
+      return false
+     }
+    else if (flxMsg[2].trim() == 'OK')
+      readNextFileLine(global.hexFile, parseInt(flxMsg[1])+1)
+    return true
+
+  }
+
+  console.log('RX > %s', message)
+
   var fndMsg = message.toString().split(';')
   //search in db for node
   db.find({ _id : fndMsg[0] }, function (err, entries) {
@@ -479,11 +547,16 @@ function handleOutTopic(message) {
 }
 
 function handleSendMessage(topic, message) {
-  console.log('mqtt: %s %s', topic, message)
+  console.log('MQTT: %s %s', topic, message)
   var findTopic = topic.toString().split('/set')
   var splitTopic = topic.toString().split('/')
   if (splitTopic[0] == 'system')
   {
+  if (splitTopic[1] == 'node' && splitTopic[3] == 'status' && splitTopic.length == 4 && message.length > 0)
+  {
+    if (message == 'update')
+      nodeOTA(splitTopic[2])
+  }
   if (splitTopic[1] == 'node' && splitTopic.length > 4 && message.length > 0)
   {
     db.find({ _id : splitTopic[2] }, function (err, entries) {
@@ -521,7 +594,7 @@ function handleSendMessage(topic, message) {
       }
     })
   }
-  if (splitTopic[1] == 'update' && message=='now')
+  if (splitTopic[1] == 'gateway' && message=='update')
   {
     fs.open('./.updatenow', "wx", function (err, fd) {
     // handle error
@@ -529,14 +602,14 @@ function handleSendMessage(topic, message) {
         // handle error
         if (err)
         {
-          client.publish('system/update', 'inprogress', {qos: 0, retain: false})
+          client.publish('system/gateway', 'previous update in progress', {qos: 0, retain: false})
         }
         else
         {
-        client.publish('system/update', 'updating', {qos: 0, retain: false})
+        client.publish('system/gateway', 'updating', {qos: 0, retain: false})
         const child = execFile('./gateway-update.sh', [''], (error, stdout, stderr) => {
           if (error) {
-            client.publish('system/update', 'error', {qos: 0, retain: false})
+            client.publish('system/gateway', 'update error', {qos: 0, retain: false})
           }
           console.log(stdout);
         });
@@ -571,4 +644,26 @@ function handleSendMessage(topic, message) {
     })
   }
 }
+
+function nodeOTA(nodeid, firmware) {
+    serial.write('TO:' + nodeid + '\n', function () { serial.drain(); });
+}
+
+function readNextFileLine(hexFile, lineNumber) {
+
+  var fileLine;
+  if (fileLine = hexFile.next()) {
+    if (fileLine.toString('ascii').trim() == ":00000001FF")
+    {
+      global.nodeTo = 0
+      console.log('Firmware successfully transfered')
+      serial.write('FLX?EOF' + '\n', function () { serial.drain(); });
+    }
+    else
+    {
+      serial.write('FLX:' + lineNumber + fileLine.toString('ascii').trim() + '\n', function () { serial.drain(); });
+    }
+  }
+}
+
 //on startup do something

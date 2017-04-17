@@ -34,7 +34,7 @@ if [ -f "${dir_to_update}/.updatenow" ] ; then
     updateRepo $dir_to_update >> $log_dir
     rm -rf ${dir_to_update}/.updatenow
     echo "OpenMiniHub gateway has been updated" >> $log_dir
-    mosquitto_pub -h localhost -p 1883 -u pi -P raspberry -t system/update -m updated
+    mosquitto_pub -h localhost -p 1883 -u pi -P raspberry -t system/gateway -m updated
     echo "Restarting gateway.service" >> $log_dir
     sudo systemctl restart gateway.service >> $log_dir
 fi

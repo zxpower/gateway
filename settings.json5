@@ -1,0 +1,52 @@
+{
+  settings: {
+    credentials: {
+      editable: true,
+      exposed: true,
+    },
+    serial: {
+      editable: true,
+      exposed: true,
+      port: {
+        value: "/dev/serial0"
+      },
+      baud: {
+        value: 115200
+      }
+    },
+    database: {
+      editable: false,
+      exposed: false,
+      name: {
+        value: "openminihub.db"
+      },
+      compactDBInterval: {
+        value: 86400000
+      }
+    },
+    general: {
+      editable: true,
+      exposed: true,
+      socketPort: {
+        value: 8080,
+        editable: false
+      }
+    },
+    mqtt: {
+      editable: true,
+      exposed: true,
+      server: {
+        value: "localhost"
+      },
+      port: {
+        value: 1883
+      },
+      username: {
+        value: "pi"
+      },
+      password: {
+        value: "raspberry"
+      }
+    }
+  }
+}
