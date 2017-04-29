@@ -304,15 +304,17 @@ client.on('connect', () => {
           for (var c in contact) {
             message = contact[c].message
               for (var m in message) {
+                  var configNodeTopic = 'system/node/'+entries[n]._id+'/'+contact[c].id+'/'+message[m].type
                   if (message[m].mqtt) //enabled events only
                   {
                     client.subscribe(message[m].mqtt+'/set')
                     console.log('%s', message[m].mqtt);
                     //node contact message configuration topics
-                    var configNodeTopic = 'system/node/'+entries[n]._id+'/'+contact[c].id+'/'+message[m].type
+//                    var configNodeTopic = 'system/node/'+entries[n]._id+'/'+contact[c].id+'/'+message[m].type
                     client.publish(configNodeTopic, message[m].mqtt, {qos: 0, retain: true})
-                    client.subscribe(configNodeTopic+'/set')
+//                    client.subscribe(configNodeTopic+'/set')
                   }
+                  client.subscribe(configNodeTopic+'/set')
               }
           }
       }
@@ -325,7 +327,8 @@ client.on('connect', () => {
     }
   })
   //system configuration topics
-  client.subscribe('system/gateway')
+  client.subscribe('system/gateway/#')
+  client.subscribe('system/nodes/#')
 })
 
 client.on('message', (topic, message) => {  
@@ -341,7 +344,11 @@ client.on('message', (topic, message) => {
 //  console.log('No handler for topic %s', topic)
 })
 
-function handleOutTopic(message) {
+function handleOutTopic(rxmessage) {
+  var message = rxmessage
+  var rssiIdx = rxmessage.indexOf(' [RSSI:') //not found = -1
+  if (rssiIdx > 0)
+    message = rxmessage.substr(0, rssiIdx);
   if (message.toString().trim() == 'FLX?OK')
   {
     if (global.nodeTo)
@@ -397,7 +404,7 @@ function handleOutTopic(message) {
 
   }
 
-  console.log('RX > %s', message)
+  console.log('RX > %s', rxmessage)
 
   var fndMsg = message.toString().split(';')
   //search in db for node
@@ -462,9 +469,11 @@ function handleOutTopic(message) {
                   db.update({ _id: msg[0], "contact.id": msg[1] }, updateCon )
                 }
                 //publish message type
-                client.publish('system/node/'+msg[0]+'/'+msg[1]+'/msgtype', msg[4], {qos: 0, retain: false})
+                //client.publish('system/node/'+msg[0]+'/'+msg[1]+'/msgtype', msg[4], {qos: 0, retain: false})
                 //publish message value
-                client.publish('system/node/'+msg[0]+'/'+msg[1]+'/'+msg[4]+'/value', msg[msg.length-1], {qos: 0, retain: false})  //fix for only 4 variables received
+                //client.publish('system/node/'+msg[0]+'/'+msg[1]+'/'+msg[4]+'/value', msg[msg.length-1], {qos: 0, retain: false})  //fix for only 4 variables received
+                //subscribe to configuration topic
+                client.subscribe('system/node/'+msg[0]+'/'+msg[1]+'/'+msg[4]+'/set')
               }
               if (msg[2]  == '0') // C_PRESENTATION
               {
@@ -541,6 +550,7 @@ function handleOutTopic(message) {
 	      db.insert(dbNode, function (err, newEntry) {
             if (err != null)
               console.log('ERROR:%s', err)
+              //TO DO: if error that row exists then do update
         })
       }
   })
@@ -552,10 +562,42 @@ function handleSendMessage(topic, message) {
   var splitTopic = topic.toString().split('/')
   if (splitTopic[0] == 'system')
   {
+  if (splitTopic[1] == 'nodes' && splitTopic.length == 2 && message == 'listnew')
+  {
+    listNodes(false)
+  }
+  if (splitTopic[1] == 'gateway' && splitTopic.length == 2)
+  {
+    var msg
+    try {
+      msg = JSON.parse(message);
+    } catch (e) {
+      return console.error(e)
+    }
+    if (msg.cmd == 'listnew')
+    {
+      listNodes(false)
+    }
+    if (msg.cmd == 'listall')
+    {
+      listNodes(true)
+    }
+  }
   if (splitTopic[1] == 'node' && splitTopic[3] == 'status' && splitTopic.length == 4 && message.length > 0)
   {
     if (message == 'update')
       nodeOTA(splitTopic[2])
+    if (message == 'waitForUpdate')
+      serial.write('*u' + splitTopic[2] + '\n', function () { serial.drain(); });
+  }
+  if (splitTopic[1] == 'gateway' && splitTopic[2] == 'include' && message == 'enable')
+  {
+    console.log('include mode')
+    serial.write('*i' +  '\n', function () { serial.drain(); })
+  }
+  if (splitTopic[1] == 'gateway' && splitTopic[2] == 'password' && message.length > 0)
+  {
+    serial.write('*p' + message + '\n', function () { serial.drain(); })
   }
   if (splitTopic[1] == 'node' && splitTopic.length > 4 && message.length > 0)
   {
@@ -633,8 +675,8 @@ function handleSendMessage(topic, message) {
             {
               if (dbNode.contact[c].message[m].mqtt == mqttTopic[0])
               {
-                console.log('node: %s contact: %s message: %s', dbNode._id, dbNode.contact[c].id, dbNode.contact[c].message[m].type)
-                console.log('%s;%s;1;1;%s;%s', dbNode._id, dbNode.contact[c].id, dbNode.contact[c].message[m].type, message)
+//                console.log('node: %s contact: %s message: %s', dbNode._id, dbNode.contact[c].id, dbNode.contact[c].message[m].type)
+                console.log('TX > %s;%s;1;1;%s;%s', dbNode._id, dbNode.contact[c].id, dbNode.contact[c].message[m].type, message)
                 serial.write(dbNode._id + ';' + dbNode.contact[c].id + ';1;1;' + dbNode.contact[c].message[m].type + ';' + message + '\n', function () { serial.drain(); });
               }
             }
@@ -643,6 +685,34 @@ function handleSendMessage(topic, message) {
       }
     })
   }
+}
+
+function listNodes(listall) {
+    db.find({ "contact.message.mqtt" : { $exists: true } }, function (err, entries) {
+      if (!err)
+      {
+        if (entries.length > 0)
+        {
+          for (var n=0; n<entries.length; n++)
+          {
+            var dbNode = entries[n]
+            for (var c=0; c<dbNode.contact.length; c++)
+            {
+              for (var m=0; m<dbNode.contact[c].message.length; m++)
+              {
+                if (listall || !dbNode.contact[c].message[m].mqtt)
+                {
+                  var newJSON = '{"nodeid": '+dbNode._id+', "contactid": '+dbNode.contact[c].id+', "contacttype": '+dbNode.contact[c].type+', "msgtype": '+dbNode.contact[c].message[m].type+', "value": "'+dbNode.contact[c].message[m].value+'", "mqtt": "'+dbNode.contact[c].message[m].mqtt+'"}'
+                  console.log('%s', newJSON)
+                  client.publish('system/node', newJSON, {qos: 0, retain: false})
+//                  serial.write(dbNode._id + ';' + dbNode.contact[c].id + ';1;1;' + dbNode.contact[c].message[m].type + ';' + message + '\n', function () { serial.drain(); });
+                }
+              }
+            }
+          }
+        }
+      }
+    })
 }
 
 function nodeOTA(nodeid, firmware) {
