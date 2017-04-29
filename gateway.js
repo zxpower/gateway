@@ -17,24 +17,16 @@ var mqtt = require('mqtt')
 var client  = mqtt.connect('mqtt://'+settings.mqtt.server.value+':'+settings.mqtt.port.value, {username:settings.mqtt.username.value, password:settings.mqtt.password.value})
 var Datastore = require('nedb')
 db = new Datastore({filename : path.join(__dirname, dbDir, settings.database.name.value), autoload: true})
-userdb = new Datastore({filename : './data/users.db', autoload: true})
 
 var express     = require('express')
 var app         = express()
 var bodyParser  = require('body-parser')
-var fs		= require('fs')
 var http	= require('http')
-var https	= require('https')
-var jwt    	= require('jsonwebtoken') // used to create, sign, and verify tokens
 
+//global variable for firmware upload
 global.nodeTo = 0
 
 var port = 8080
-var securityOptions = {
-    key: fs.readFileSync('./ssl/server.key'),
-    cert: fs.readFileSync('./ssl/server.crt'),
-    requestCert: true
-}
 
 // get an instance of the router for api routes
 var apiRoutes = express.Router()
@@ -43,8 +35,8 @@ var apiRoutes = express.Router()
 app.use(bodyParser.urlencoded({ extended: false }))
 app.use(bodyParser.json())
 
-// start secure server on our defined port
-var server = https.createServer(securityOptions, app).listen(port, function(){
+// start server on our defined port
+var server = http.createServer(app).listen(port, function(){
   console.log("Express server listening on port " + port)
 })
 
@@ -56,210 +48,6 @@ app.get('/', function(req, res) {
 // route to show a random message (GET http://localhost:8080/api/)
 apiRoutes.get('/', function(req, res) {
   res.json({ message: 'OpenMiniHub API running.' })
-})
-
-// authenticate the user and give the token to him
-apiRoutes.post('/auth', function(req, res) {
-  userdb.findOne({ _id: req.body.name }, function(err, user) {
-    if (err) throw err
-    if (!user) {
-      res.json({ success: false, message: 'Authentication failed. User not found.' })
-    } else if (user) {
-      // check if password matches
-      if (user.password != req.body.password) {
-        res.json({ success: false, message: 'Authentication failed. Wrong password.' })
-      } else {
-        // if user is found and password is right
-        // create a token
-        var token = jwt.sign(user._id, securityOptions.key) //, { expiresIn: '5m' })
-
-        // return the information including token as JSON
-        res.json({
-          success: true,
-          message: 'Enjoy your token!',
-          token: token
-        })
-      }
-    }
-  })
-})
-
-// route middleware to verify a token
-apiRoutes.use(function(req, res, next) {
-  // check header or url parameters or post parameters for token
-  var token = req.body.token || req.query.token || req.headers['x-access-token']
-
-  // decode token
-  if (token) {
-    // verifies secret and checks exp
-    jwt.verify(token, securityOptions.key, function(err, decoded) {
-      if (err) {
-        return res.json({ success: false, message: 'Failed to authenticate token.' })
-      } else {
-        // if everything is good, save to request for use in other routes
-        req.decoded = decoded
-        next()
-      }
-    })
-
-  } else {
-    // if there is no token
-    // return an error
-    return res.status(403).send({
-        success: false,
-        message: 'No token provided.'
-    })
-  }
-})
-
-// route to return all nodes (GET http://localhost:8080/api/nodes)
-apiRoutes.get('/nodes', function(req, res) {
-  db.find({ _id : { $exists: true } }, function (err, entries) {
-    res.json(entries)
-  })
-})
-
-apiRoutes.get('/node/:id', function(req, res) {
-  if (req.params.id == 'all') {
-    db.find({ _id : { $exists: true } }, function (err, entries) {
-      res.json(entries)
-    })
-  } else {
-    db.find({ _id : req.params.id }, function (err, entries) {
-      res.json(entries)
-    })
-  }
-//  res.send('no node found')
-})
-
-apiRoutes.get('/node/:id/:contact', function(req, res) {
-  db.find({ _id : req.params.id, "contact.id" : req.params.contact }, function (err, entries) {
-    if (entries.length == 1)
-    {
-      dbNode = entries[0]
-      for (var c=0; c<dbNode.contact.length; c++) 
-      {
-        if (dbNode.contact[c].id == req.params.contact)
-        {
-          res.json(dbNode.contact[c])
-        }
-      }
-    }
-    else
-    {
-      res.send('no node found')
-    }
-  })
-})
-
-apiRoutes.get('/node/:id/:contact/:message', function(req, res) {
-  db.find({ _id : req.params.id, "contact.id" : req.params.contact }, function (err, entries) {
-    var foundMessage = false
-    if (entries.length == 1)
-    {
-      dbNode = entries[0]
-      for (var c=0; c<dbNode.contact.length; c++)
-      {
-        if (dbNode.contact[c].id == req.params.contact)
-        {
-          for (var m=0; m<dbNode.contact[c].message.length; m++)
-          {
-            if (dbNode.contact[c].message[m].type == req.params.message)
-            {
-              foundMessage = true
-              res.json(dbNode.contact[c].message[m])
-              break
-            }
-          }
-          if (foundMessage)
-            break
-        }
-      }
-    }
-    if (!foundMessage)
-    {
-      res.send('no node found')
-    }
-  })
-})
-
-apiRoutes.put('/node/:id/:contact/:message', function(req, res) {
-  console.log('mqtt=%s', req.body.mqtt)
-  if (!req.body.mqtt)
-  {
-    res.json({ success: false, message: 'No MQTT specified.' })
-  }
-  else
-  db.find({ _id : req.params.id, "contact.id" : req.params.contact }, function (err, entries) {
-    if (err) throw err
-    var foundMessage = false
-    if (entries.length == 1)
-    {
-      dbNode = entries[0]
-      for (var c=0; c<dbNode.contact.length; c++)
-      {
-        if (dbNode.contact[c].id == req.params.contact)
-        {
-          for (var m=0; m<dbNode.contact[c].message.length; m++)
-          {
-            if (dbNode.contact[c].message[m].type == req.params.message)
-            {
-              foundMessage = true
-              var updateCon = {$set:{}}   
-              updateCon.$set["contact."+c+".message."+m+".mqtt"] = req.body.mqtt
-              db.update({ _id: req.params.id, "contact.id": req.params.contact }, updateCon )
-
-              res.json({
-                success: true,
-                message: 'Enjoy your MQTT',
-                mqtt: req.body.mqtt
-              })
-              break
-            }
-          }
-          if (foundMessage)
-            break
-        }
-      }
-    }
-    if (!foundMessage)
-    {
-      res.send('no node found')
-    }
-  })
-})
-/*
-apiRoutes.put('/node/:id', function(req, res) {
-  db.findOne({ _id: req.params.id }, function(err, entries) {
-    if (err) throw err
-    if (!entries) {
-      res.json({ success: false, message: 'Node not found.' })
-    } else if (entries) {
-      // check if mqtt is set
-      if (!req.body.mqtt) {
-        res.json({ success: false, message: 'No MQTT specified.' })
-      } else {
-        // if node found and mqtt specified 
-	      db.update({ _id: req.params.id}, { $set: {mqtt: req.body.mqtt} })
-        // return the information including token as JSON
-        res.json({
-          success: true,
-          message: 'Enjoy your MQTT',
-	        mqtt: req.body.mqtt
-        })
-      }
-    }
-  })
-})
-*/
-apiRoutes.get('/create', function(req, res) {
-  userRow._id='user'
-  userRow.password='password'
-  userdb.insert(userRow, function (err, newEntry) {
-    if (err != null)
-      console.log('ERROR:%s', err)
-    res.json({ message: 'user added' })
-    })
 })
 
 // apply the routes to our application with the prefix /api
