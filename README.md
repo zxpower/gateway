@@ -24,31 +24,37 @@ The full details of how to install this gateway will be published on [web](http:
 **For communication with gateway and nodes use MQTT**
 - Adding a new node
   On node presenting you will get such MQTT messages:
+  ```
   system/node/node_id/name			SW_NAME
   system/node/node_id/version			SW_VERSION
   system/node/node_id/type			[contact type](https://www.mysensors.org/download/serial_api_20#presentation)
   system/node/node_id/contact_id/msgtype		[msg type](https://www.mysensors.org/download/serial_api_20#set,-req)
   system/node/node_id/contact_id/msgtype/value	value
-
+  ```
   example for *Garage door controller* (node id:2, relay on contact:1, contact: S_LOCK, msgtype: V_LOCK_STATUS, value: LOCKED)
+  ```
   system/node/2/name		GarageNode
   system/node/2/version		1.0
   system/node/2/1/type		19
   system/node/2/1/msgtype	36
   system/node/2/1/36/value	LOCKED
-
+  ```
 - Set the MQTT topic for node contact message
+  ```
   system/node/node_id/contact_id/msgtype/set	home/outside/gate/status
-
+  ```
   example:
+  ```
   system/node/1/2/2/set				home/outside/gate/status
-
+  ```
 - Update node with new firmware
+  ```
   system/node/node_id/status	update
-
+  ```
 - Update gateway
+  ```
   system/gateway	update (feedback messages: updating, updated, update error, previous update in progress)
-
+  ```
 ## License
 This source code is released under GPL 3.0 with the following ammendment:<br/>
 You are free to use, copy, distribute and transmit this Software for non-commercial purposes.
