@@ -120,16 +120,18 @@ client.on('connect', () => {
 })
 
 client.on('message', (topic, message) => {  
-//  stopic = topic.split('/')
-//  switch (stopic[0]) {
-//    case 'outOMH':
-//      return handleOutTopic(message)
-//    case 'home':
-//      return handleSendMessage(topic, message)
   if (message.toString().trim().length > 0) 
-    handleSendMessage(topic, message)
-//  }
-//  console.log('No handler for topic %s', topic)
+  {
+    console.log('MQTT: %s %s', topic, message)
+    stopic = topic.split('/')
+    switch (stopic[0]) {
+      case 'system':
+        return handleSystemMessage(message)
+      default:
+        return handleSendMessage(topic, message)
+    }
+  }
+  console.log('No handler for topic %s', topic)
 })
 
 function handleOutTopic(rxmessage) {
@@ -344,16 +346,9 @@ function handleOutTopic(rxmessage) {
   })
 }
 
-function handleSendMessage(topic, message) {
-  console.log('MQTT: %s %s', topic, message)
-  var findTopic = topic.toString().split('/set')
+function handleSystemMessage(topic, message) {
   var splitTopic = topic.toString().split('/')
-  if (splitTopic[0] == 'system')
-  {
-  if (splitTopic[1] == 'nodes' && splitTopic.length == 2 && message == 'listnew')
-  {
-    listNodes(false)
-  }
+  //get node list
   if (splitTopic[1] == 'gateway' && splitTopic.length == 2)
   {
     var msg
@@ -362,15 +357,41 @@ function handleSendMessage(topic, message) {
     } catch (e) {
       return console.error(e)
     }
-    if (msg.cmd == 'listnew')
-    {
-      listNodes(false)
-    }
-    if (msg.cmd == 'listall')
-    {
-      listNodes(true)
+    switch (msg.cmd) {
+      case 'listnew':
+        listNodes(false)
+        break
+      case 'listall':
+        listNodes(false)
+        break
+      case 'updateHRFHJsk':
+        fs.open('./.updatenow', "wx", function (err, fd) {
+          // handle error
+          fs.close(fd, function (err) {
+            // handle error
+            if (err)
+            {
+              client.publish('system/gateway', 'previous update in progress', {qos: 0, retain: false})
+            }
+            else
+            {
+              client.publish('system/gateway', 'updating', {qos: 0, retain: false})
+              const child = execFile('./gateway-update.sh', [''], (error, stdout, stderr) => {
+                if (error)
+                {
+                  client.publish('system/gateway', 'update error', {qos: 0, retain: false})
+                }
+                console.log(stdout);
+              });
+            }
+          });
+        });
+        break
+      default:
+        console.log('No handler for %s %s', topic, message)
     }
   }
+  //update node
   if (splitTopic[1] == 'node' && splitTopic[3] == 'status' && splitTopic.length == 4 && message.length > 0)
   {
     if (message == 'update')
@@ -378,15 +399,18 @@ function handleSendMessage(topic, message) {
     if (message == 'waitForUpdate')
       serial.write('*u' + splitTopic[2] + '\n', function () { serial.drain(); });
   }
+  //set gateway to include mode
   if (splitTopic[1] == 'gateway' && splitTopic[2] == 'include' && message == 'enable')
   {
     console.log('include mode')
     serial.write('*i' +  '\n', function () { serial.drain(); })
   }
+  //change gateway password
   if (splitTopic[1] == 'gateway' && splitTopic[2] == 'password' && message.length > 0)
   {
     serial.write('*p' + message + '\n', function () { serial.drain(); })
   }
+  //set node contact message MQTT topic
   if (splitTopic[1] == 'node' && splitTopic.length > 4 && message.length > 0)
   {
     db.find({ _id : splitTopic[2] }, function (err, entries) {
@@ -424,55 +448,31 @@ function handleSendMessage(topic, message) {
       }
     })
   }
-  if (splitTopic[1] == 'gateway' && message=='update')
-  {
-    fs.open('./.updatenow', "wx", function (err, fd) {
-    // handle error
-    fs.close(fd, function (err) {
-        // handle error
-        if (err)
-        {
-          client.publish('system/gateway', 'previous update in progress', {qos: 0, retain: false})
-        }
-        else
-        {
-        client.publish('system/gateway', 'updating', {qos: 0, retain: false})
-        const child = execFile('./gateway-update.sh', [''], (error, stdout, stderr) => {
-          if (error) {
-            client.publish('system/gateway', 'update error', {qos: 0, retain: false})
-          }
-          console.log(stdout);
-        });
-        }
-    });
-    });
-  }
-  }
-  else
-  {
-    db.find({ "contact.message.mqtt" : findTopic[0] }, function (err, entries) {
-      if (!err)
+}
+
+function handleSendMessage(topic, message) {
+  var findTopic = topic.toString().split('/set')
+  db.find({ "contact.message.mqtt" : findTopic[0] }, function (err, entries) {
+    if (!err)
+    {
+      if (entries.length > 0)
       {
-        if (entries.length > 0)
+        var mqttTopic = topic.toString().split('/set')
+        var dbNode = entries[0]
+        for (var c=0; c<dbNode.contact.length; c++)
         {
-          var mqttTopic = topic.toString().split('/set')
-          var dbNode = entries[0]
-          for (var c=0; c<dbNode.contact.length; c++)
+          for (var m=0; m<dbNode.contact[c].message.length; m++)
           {
-            for (var m=0; m<dbNode.contact[c].message.length; m++)
+            if (dbNode.contact[c].message[m].mqtt == mqttTopic[0])
             {
-              if (dbNode.contact[c].message[m].mqtt == mqttTopic[0])
-              {
-//                console.log('node: %s contact: %s message: %s', dbNode._id, dbNode.contact[c].id, dbNode.contact[c].message[m].type)
-                console.log('TX > %s;%s;1;1;%s;%s', dbNode._id, dbNode.contact[c].id, dbNode.contact[c].message[m].type, message)
-                serial.write(dbNode._id + ';' + dbNode.contact[c].id + ';1;1;' + dbNode.contact[c].message[m].type + ';' + message + '\n', function () { serial.drain(); });
-              }
+              console.log('TX > %s;%s;1;1;%s;%s', dbNode._id, dbNode.contact[c].id, dbNode.contact[c].message[m].type, message)
+              serial.write(dbNode._id + ';' + dbNode.contact[c].id + ';1;1;' + dbNode.contact[c].message[m].type + ';' + message + '\n', function () { serial.drain(); });
             }
           }
         }
       }
-    })
-  }
+    }
+  })
 }
 
 function listNodes(listall) {
