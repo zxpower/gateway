@@ -92,22 +92,19 @@ client.on('connect', () => {
           for (var c in contact) {
             message = contact[c].message
               for (var m in message) {
+                  // node contact message configuration topics
                   var configNodeTopic = 'system/node/'+entries[n]._id+'/'+contact[c].id+'/'+message[m].type
                   if (message[m].mqtt) //enabled events only
                   {
                     client.subscribe(message[m].mqtt+'/set')
                     console.log('%s', message[m].mqtt);
-                    //node contact message configuration topics
-//                    var configNodeTopic = 'system/node/'+entries[n]._id+'/'+contact[c].id+'/'+message[m].type
-                    client.publish(configNodeTopic, message[m].mqtt, {qos: 0, retain: true})
-//                    client.subscribe(configNodeTopic+'/set')
+                    // client.publish(configNodeTopic, message[m].mqtt, {qos: 0, retain: false})
                   }
                   client.subscribe(configNodeTopic+'/set')
               }
           }
       }
       console.log('==============================');
-//      nodeOTA(5)
     }
     else
     {
@@ -115,18 +112,25 @@ client.on('connect', () => {
     }
   })
   //system configuration topics
-  client.subscribe('system/gateway/#')
-  client.subscribe('system/nodes/#')
+  client.subscribe('system/gateway')
+  client.subscribe('system/node/?/?/?/set')
 })
 
-client.on('message', (topic, message) => {  
-  if (message.toString().trim().length > 0) 
+client.on('message', (topic, message) => {
+  if (message.toString().trim().length > 0)
   {
     console.log('MQTT: %s %s', topic, message)
     stopic = topic.split('/')
     switch (stopic[0]) {
       case 'system':
-        return handleSystemMessage(message)
+        switch (stopic[1]) {
+          case 'gateway':
+            return handleGatewayMessage(topic, message)
+          case 'node':
+            return handleNodeMessage(topic, message)
+          default:
+            return false;
+        }
       default:
         return handleSendMessage(topic, message)
     }
@@ -157,12 +161,11 @@ function handleOutTopic(rxmessage) {
         if (entries.length == 1)
         {
           dbNode = entries[0]
-
-//          global.hexFile = new readFile('./firmware/GarageNode/GarageNode_v1.1.hex')
+          // global.hexFile = new readFile('./firmware/GarageNode/GarageNode_v1.1.hex')
           global.nodeTo = dbNode._id
           nconf.use('file', { file: './firmware/versions.json5' })
           var nodeFirmware = nconf.get('versions:'+dbNode.name+':firmware')
-//          console.log('FW > %s', nodeFirmware)
+          // console.log('FW > %s', nodeFirmware)
           global.hexFile = new readFile('./firmware/'+nodeFirmware)
           serial.write('FLX?' + '\n', function () { serial.drain(); })
           console.log('Requesting Node: %s update with FW: %s', global.nodeTo, nodeFirmware)
@@ -346,7 +349,7 @@ function handleOutTopic(rxmessage) {
   })
 }
 
-function handleSystemMessage(topic, message) {
+function handleGatewayMessage(topic, message) {
   var splitTopic = topic.toString().split('/')
   //get node list
   if (splitTopic[1] == 'gateway' && splitTopic.length == 2)
@@ -391,14 +394,6 @@ function handleSystemMessage(topic, message) {
         console.log('No handler for %s %s', topic, message)
     }
   }
-  //update node
-  if (splitTopic[1] == 'node' && splitTopic[3] == 'status' && splitTopic.length == 4 && message.length > 0)
-  {
-    if (message == 'update')
-      nodeOTA(splitTopic[2])
-    if (message == 'waitForUpdate')
-      serial.write('*u' + splitTopic[2] + '\n', function () { serial.drain(); });
-  }
   //set gateway to include mode
   if (splitTopic[1] == 'gateway' && splitTopic[2] == 'include' && message == 'enable')
   {
@@ -410,8 +405,20 @@ function handleSystemMessage(topic, message) {
   {
     serial.write('*p' + message + '\n', function () { serial.drain(); })
   }
+}
+
+function handleNodeMessage(topic, message) {
+  var splitTopic = topic.toString().split('/')
+  //update node
+  if (splitTopic[1] == 'node' && splitTopic[3] == 'status' && splitTopic.length == 4 && message.length > 0)
+  {
+    if (message == 'update')
+      nodeOTA(splitTopic[2])
+    if (message == 'waitForUpdate')
+      serial.write('*u' + splitTopic[2] + '\n', function () { serial.drain(); });
+  }
   //set node contact message MQTT topic
-  if (splitTopic[1] == 'node' && splitTopic.length > 4 && message.length > 0)
+  if (splitTopic[1] == 'node' && splitTopic[5] == 'set' && splitTopic.length == 5 && message.length > 0)
   {
     db.find({ _id : splitTopic[2] }, function (err, entries) {
       if (entries.length == 1)
@@ -451,7 +458,7 @@ function handleSystemMessage(topic, message) {
 }
 
 function handleSendMessage(topic, message) {
-  var findTopic = topic.toString().split('/set')
+  var findTopic = topic.toString().split('/set') //TO DO: remove /set in correct way
   db.find({ "contact.message.mqtt" : findTopic[0] }, function (err, entries) {
     if (!err)
     {
