@@ -1,5 +1,7 @@
 data
 firmware
 node_modules
+settings.json5
 logs/*.log
 ssl/*
+setup/gateway-update.service
